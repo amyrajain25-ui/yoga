@@ -24,8 +24,8 @@ RUN pnpm build
 FROM nginx:alpine AS production
 WORKDIR /usr/share/nginx/html
 
-# Copy built assets from builder stage to the default Nginx html root
-COPY --from=builder /app/dist /usr/share/nginx/html
+# Copy built assets from builder stage to the subpath folder in Nginx html root
+COPY --from=builder /app/dist /usr/share/nginx/html/yoga
 
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf

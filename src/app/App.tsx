@@ -104,7 +104,7 @@ export default function App() {
     Auth.clear();
     setProfile(null);
     setUserId(null);
-    window.location.href = '/token';
+    window.location.href = '/yoga/token';
   };
 
   if (isPreparing) {

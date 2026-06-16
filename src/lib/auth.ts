@@ -72,7 +72,7 @@ export const Auth = {
         return userIdStr;
       } catch (err) {
         console.error('[auth] MantraCare Token validation failed:', err);
-        window.location.href = '/token';
+        window.location.href = '/yoga/token';
         throw err;
       }
     } else {
@@ -89,7 +89,7 @@ export const Auth = {
       }
 
       // If token is missing and there is no active session, execute hard redirect
-      window.location.href = '/token';
+      window.location.href = '/yoga/token';
       throw new Error('No active session or token found');
     }
   }
