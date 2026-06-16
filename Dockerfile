@@ -11,7 +11,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
 # Install pnpm globally then install deps
 RUN npm install -g pnpm && \
-    pnpm install --frozen-lockfile
+    pnpm install --no-frozen-lockfile
 
 # Copy all source files
 COPY . .
