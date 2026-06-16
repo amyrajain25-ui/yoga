@@ -9,8 +9,9 @@ RUN apk add --no-cache python3 make g++
 # Copy package files first for layer caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-# Install pnpm globally then install deps
+# Install pnpm globally then install deps (allow native build scripts for esbuild, @tailwindcss/oxide)
 RUN npm install -g pnpm && \
+    pnpm config set dangerouslyAllowAllBuilds true && \
     pnpm install --no-frozen-lockfile
 
 # Copy all source files
