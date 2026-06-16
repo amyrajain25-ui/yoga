@@ -22,6 +22,13 @@ export async function initializeUser(userId: string): Promise<UserProfile | null
       const row = rows[0];
       console.info('[userInit] Loaded existing database profile for user ID:', userId);
 
+      // Check if the user has completed onboarding by verifying key fields.
+      // If gender, experience, or skill_level is missing, treat the profile as incomplete and return null to show onboarding.
+      if (!row.gender || !row.experience || !row.skill_level) {
+        console.info('[userInit] Profile is incomplete. Triggering onboarding.');
+        return null;
+      }
+
       return {
         name: row.name || 'User',
         age: row.age !== null ? String(row.age) : '25',
