@@ -52,5 +52,8 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:1.0
             ${{ env.IMAGE_NAME }}:latest
+          # Pass Neon DB URL securely from GitHub secrets as a build-time arg (baked into Vite bundle)
+          build-args: |
+            VITE_DATABASE_URL=${{ secrets.DATABASE_URL }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

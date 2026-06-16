@@ -17,7 +17,11 @@ RUN npm install -g pnpm && \
 # Copy all source files
 COPY . .
 
-# Build the production bundle (Vite)
+# Accept Neon DB URL as a build argument (passed securely from CI secrets, never hardcoded)
+ARG VITE_DATABASE_URL
+ENV VITE_DATABASE_URL=$VITE_DATABASE_URL
+
+# Build the production bundle (Vite) — VITE_DATABASE_URL is baked in at this step
 RUN pnpm build
 
 # ─── Stage 2: Serve ─────────────────────────────────────────────────────────
