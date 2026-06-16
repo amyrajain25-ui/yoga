@@ -15,6 +15,9 @@ import { sql } from "../lib/db";
 type Tab = "home" | "library" | "programs" | "progress" | "settings";
 type ExtraPanel = "breathing" | "habits" | "journal" | null;
 
+// Minimum time to show the loading screen (prevents flash if auth is instant)
+const MIN_LOADING_MS = 600;
+
 export default function App() {
   const [userId, setUserId] = useState<string | null>(null);
   const [isPreparing, setIsPreparing] = useState(true);
@@ -30,8 +33,8 @@ export default function App() {
 
   useEffect(() => {
     async function runHandshake() {
+      const startTime = Date.now();
       try {
-        setIsPreparing(true);
         const validatedUid = await Auth.performHandshake();
         setUserId(validatedUid);
 
@@ -77,6 +80,12 @@ export default function App() {
       } catch (err) {
         console.error('[App] Verification or initialization failed:', err);
       } finally {
+        // Enforce minimum loading duration to prevent flashing/glitching
+        const elapsed = Date.now() - startTime;
+        const remaining = MIN_LOADING_MS - elapsed;
+        if (remaining > 0) {
+          await new Promise(r => setTimeout(r, remaining));
+        }
         setIsPreparing(false);
       }
     }
@@ -104,55 +113,12 @@ export default function App() {
     Auth.clear();
     setProfile(null);
     setUserId(null);
-    window.location.href = '/yoga/token';
+    setIsPreparing(true);
+    // Use a short timeout so the loading screen fades in before the redirect
+    setTimeout(() => {
+      window.location.href = '/yoga/token';
+    }, 300);
   };
-
-  if (isPreparing) {
-    return (
-      <div style={{
-        minHeight: "100dvh",
-        backgroundColor: "var(--background)",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        fontFamily: "var(--font-display, sans-serif)",
-        color: "var(--foreground)",
-        padding: "24px",
-        textAlign: "center",
-      }}>
-        <motion.div
-          animate={{ scale: [1, 1.15, 1], opacity: [0.6, 1, 0.6] }}
-          transition={{ repeat: Infinity, duration: 2.2, ease: "easeInOut" }}
-          style={{
-            width: "80px",
-            height: "80px",
-            borderRadius: "50%",
-            background: "linear-gradient(135deg, var(--wellness-teal), var(--wellness-teal-light))",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            boxShadow: "0 8px 32px var(--wellness-teal)40",
-            marginBottom: "24px",
-          }}
-        >
-          <Wind size={36} color="white" />
-        </motion.div>
-        <h2 style={{ fontSize: "20px", fontWeight: "700", marginBottom: "8px", letterSpacing: "-0.5px" }}>Preparing Serenity...</h2>
-        <p style={{ color: "var(--muted-foreground)", fontSize: "14px" }}>Setting up your wellness space</p>
-      </div>
-    );
-  }
-
-  if (!profile) {
-    return (
-      <Onboarding
-        onComplete={handleOnboardingComplete}
-        darkMode={darkMode}
-        toggleDark={handleDarkToggle}
-      />
-    );
-  }
 
   const tabs: { id: Tab; icon: React.ComponentType<{ size?: number }>; label: string }[] = [
     { id: "home", icon: HomeIcon, label: "Home" },
@@ -168,168 +134,241 @@ export default function App() {
     { id: "journal" as ExtraPanel, icon: BookOpen, label: "Journal", color: "#B8A8D5" },
   ];
 
+  // Single AnimatePresence wrapping ALL phases — eliminates abrupt DOM swaps/glitching
   return (
-    <div
-      style={{
-        minHeight: "100dvh",
-        backgroundColor: "var(--background)",
-        maxWidth: "480px",
-        margin: "0 auto",
-        position: "relative",
-        overflowX: "hidden",
-      }}
-    >
-      <div style={{ overflowY: "auto", height: "100dvh" }}>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-          >
-            {activeTab === "home" && (
-              <Home profile={profile} darkMode={darkMode} onGoToLibrary={() => setActiveTab("library")} />
-            )}
-            {activeTab === "library" && <Library />}
-            {activeTab === "programs" && <Programs />}
-            {activeTab === "progress" && <Progress profile={profile} />}
-            {activeTab === "settings" && (
-              <Settings onSignOut={handleSignOut} darkMode={darkMode} toggleDark={handleDarkToggle} />
-            )}
-          </motion.div>
-        </AnimatePresence>
-      </div>
+    <AnimatePresence mode="wait">
 
-      {activeTab !== "settings" && (
-        <div style={{ position: "fixed", bottom: "90px", right: "16px", zIndex: 40 }}>
-          {showExtrasMenu && (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-              {extras.map((e, i) => {
-                const Icon = e.icon;
-                return (
-                  <motion.button
-                    key={e.id}
-                    initial={{ opacity: 0, y: 20, scale: 0.8 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 20, scale: 0.8 }}
-                    transition={{ delay: i * 0.06 }}
-                    onClick={() => { setExtraPanel(e.id); setShowExtrasMenu(false); }}
-                    style={{
-                      display: "flex", alignItems: "center", gap: "8px",
-                      padding: "10px 14px", borderRadius: "20px", border: "none",
-                      backgroundColor: e.color, color: "#fff", cursor: "pointer",
-                      marginBottom: "8px", fontSize: "13px", fontWeight: "600",
-                      boxShadow: "0 4px 12px " + e.color + "66", whiteSpace: "nowrap",
-                    }}
-                  >
-                    <Icon size={15} />
-                    {e.label}
-                  </motion.button>
-                );
-              })}
-            </div>
-          )}
-          <button
-            onClick={() => setShowExtrasMenu(s => !s)}
+      {/* ── Phase 1: Loading Screen ── */}
+      {isPreparing && (
+        <motion.div
+          key="loading"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
+          style={{
+            minHeight: "100dvh",
+            backgroundColor: "var(--background)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            fontFamily: "var(--font-display, sans-serif)",
+            color: "var(--foreground)",
+            padding: "24px",
+            textAlign: "center",
+          }}
+        >
+          <motion.div
+            animate={{ scale: [1, 1.15, 1], opacity: [0.6, 1, 0.6] }}
+            transition={{ repeat: Infinity, duration: 2.2, ease: "easeInOut" }}
             style={{
-              width: "48px", height: "48px", borderRadius: "16px", border: "none",
+              width: "80px",
+              height: "80px",
+              borderRadius: "50%",
               background: "linear-gradient(135deg, var(--wellness-teal), var(--wellness-teal-light))",
-              color: "#fff", cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 4px 16px var(--wellness-teal)66",
-              transition: "transform 0.2s",
-              transform: showExtrasMenu ? "rotate(45deg)" : "rotate(0deg)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 8px 32px var(--wellness-teal)40",
+              marginBottom: "24px",
             }}
           >
-            <Plus size={22} />
-          </button>
-        </div>
+            <Wind size={36} color="white" />
+          </motion.div>
+          <h2 style={{ fontSize: "20px", fontWeight: "700", marginBottom: "8px", letterSpacing: "-0.5px" }}>Preparing Serenity...</h2>
+          <p style={{ color: "var(--muted-foreground)", fontSize: "14px" }}>Setting up your wellness space</p>
+        </motion.div>
       )}
 
-      <AnimatePresence>
-        {extraPanel && (
-          <motion.div
-            key="extra-overlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            style={{
-              position: "fixed", inset: 0, zIndex: 60,
-              backgroundColor: "rgba(0,0,0,0.6)",
-              display: "flex", alignItems: "flex-end",
-            }}
-            onClick={() => setExtraPanel(null)}
-          >
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 25 }}
-              onClick={e => e.stopPropagation()}
-              style={{
-                width: "100%", maxWidth: "480px", margin: "0 auto",
-                backgroundColor: "var(--background)",
-                borderRadius: "24px 24px 0 0",
-                padding: "8px 16px 40px",
-                maxHeight: "85dvh", overflowY: "auto",
-              }}
-            >
-              <div style={{
-                width: "40px", height: "4px", borderRadius: "2px",
-                backgroundColor: "var(--border)", margin: "0 auto 20px",
-              }} />
-              {extraPanel === "breathing" && <BreathingTimer />}
-              {extraPanel === "habits" && <HabitTracker />}
-              {extraPanel === "journal" && <WellnessJournal />}
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* ── Phase 2: Onboarding ── */}
+      {!isPreparing && !profile && (
+        <motion.div
+          key="onboarding"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          transition={{ duration: 0.35, ease: "easeOut" }}
+        >
+          <Onboarding
+            onComplete={handleOnboardingComplete}
+            darkMode={darkMode}
+            toggleDark={handleDarkToggle}
+          />
+        </motion.div>
+      )}
 
-      <div style={{
-        position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
-        width: "100%", maxWidth: "480px",
-        backgroundColor: "var(--card)", borderTop: "1px solid var(--border)",
-        display: "flex", paddingBottom: "env(safe-area-inset-bottom, 8px)", zIndex: 30,
-      }}>
-        {tabs.map(t => {
-          const Icon = t.icon;
-          const active = activeTab === t.id;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id)}
-              style={{
-                flex: 1, padding: "10px 4px 8px", border: "none",
-                backgroundColor: "transparent", cursor: "pointer",
-                display: "flex", flexDirection: "column", alignItems: "center", gap: "4px",
-                position: "relative",
-              }}
-            >
-              <div style={{
-                position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
-                width: "32px", height: "3px", borderRadius: "0 0 3px 3px",
-                backgroundColor: "var(--wellness-teal)",
-                opacity: active ? 1 : 0, transition: "opacity 0.2s",
-              }} />
-              <div style={{
-                width: "32px", height: "32px", borderRadius: "10px",
-                backgroundColor: active ? "var(--wellness-teal)22" : "transparent",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                transition: "all 0.2s",
-              }}>
-                <Icon size={18} color={active ? "var(--wellness-teal)" : "var(--muted-foreground)"} />
-              </div>
-              <span style={{
-                fontSize: "10px",
-                color: active ? "var(--wellness-teal)" : "var(--muted-foreground)",
-                fontWeight: active ? "600" : "400",
-              }}>{t.label}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
+      {/* ── Phase 3: Main App ── */}
+      {!isPreparing && profile && (
+        <motion.div
+          key="main-app"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
+          style={{
+            minHeight: "100dvh",
+            backgroundColor: "var(--background)",
+            maxWidth: "480px",
+            margin: "0 auto",
+            position: "relative",
+            overflowX: "hidden",
+          }}
+        >
+          <div style={{ overflowY: "auto", height: "100dvh" }}>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                {activeTab === "home" && (
+                  <Home profile={profile} darkMode={darkMode} onGoToLibrary={() => setActiveTab("library")} />
+                )}
+                {activeTab === "library" && <Library />}
+                {activeTab === "programs" && <Programs />}
+                {activeTab === "progress" && <Progress profile={profile} />}
+                {activeTab === "settings" && (
+                  <Settings onSignOut={handleSignOut} darkMode={darkMode} toggleDark={handleDarkToggle} />
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {activeTab !== "settings" && (
+            <div style={{ position: "fixed", bottom: "90px", right: "16px", zIndex: 40 }}>
+              {showExtrasMenu && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                  {extras.map((e, i) => {
+                    const Icon = e.icon;
+                    return (
+                      <motion.button
+                        key={e.id}
+                        initial={{ opacity: 0, y: 20, scale: 0.8 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 20, scale: 0.8 }}
+                        transition={{ delay: i * 0.06 }}
+                        onClick={() => { setExtraPanel(e.id); setShowExtrasMenu(false); }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: "8px",
+                          padding: "10px 14px", borderRadius: "20px", border: "none",
+                          backgroundColor: e.color, color: "#fff", cursor: "pointer",
+                          marginBottom: "8px", fontSize: "13px", fontWeight: "600",
+                          boxShadow: "0 4px 12px " + e.color + "66", whiteSpace: "nowrap",
+                        }}
+                      >
+                        <Icon size={15} />
+                        {e.label}
+                      </motion.button>
+                    );
+                  })}
+                </div>
+              )}
+              <button
+                onClick={() => setShowExtrasMenu(s => !s)}
+                style={{
+                  width: "48px", height: "48px", borderRadius: "16px", border: "none",
+                  background: "linear-gradient(135deg, var(--wellness-teal), var(--wellness-teal-light))",
+                  color: "#fff", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: "0 4px 16px var(--wellness-teal)66",
+                  transition: "transform 0.2s",
+                  transform: showExtrasMenu ? "rotate(45deg)" : "rotate(0deg)",
+                }}
+              >
+                <Plus size={22} />
+              </button>
+            </div>
+          )}
+
+          <AnimatePresence>
+            {extraPanel && (
+              <motion.div
+                key="extra-overlay"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                style={{
+                  position: "fixed", inset: 0, zIndex: 60,
+                  backgroundColor: "rgba(0,0,0,0.6)",
+                  display: "flex", alignItems: "flex-end",
+                }}
+                onClick={() => setExtraPanel(null)}
+              >
+                <motion.div
+                  initial={{ y: "100%" }}
+                  animate={{ y: 0 }}
+                  exit={{ y: "100%" }}
+                  transition={{ type: "spring", damping: 25 }}
+                  onClick={e => e.stopPropagation()}
+                  style={{
+                    width: "100%", maxWidth: "480px", margin: "0 auto",
+                    backgroundColor: "var(--background)",
+                    borderRadius: "24px 24px 0 0",
+                    padding: "8px 16px 40px",
+                    maxHeight: "85dvh", overflowY: "auto",
+                  }}
+                >
+                  <div style={{
+                    width: "40px", height: "4px", borderRadius: "2px",
+                    backgroundColor: "var(--border)", margin: "0 auto 20px",
+                  }} />
+                  {extraPanel === "breathing" && <BreathingTimer />}
+                  {extraPanel === "habits" && <HabitTracker />}
+                  {extraPanel === "journal" && <WellnessJournal />}
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div style={{
+            position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
+            width: "100%", maxWidth: "480px",
+            backgroundColor: "var(--card)", borderTop: "1px solid var(--border)",
+            display: "flex", paddingBottom: "env(safe-area-inset-bottom, 8px)", zIndex: 30,
+          }}>
+            {tabs.map(t => {
+              const Icon = t.icon;
+              const active = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setActiveTab(t.id)}
+                  style={{
+                    flex: 1, padding: "10px 4px 8px", border: "none",
+                    backgroundColor: "transparent", cursor: "pointer",
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: "4px",
+                    position: "relative",
+                  }}
+                >
+                  <div style={{
+                    position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
+                    width: "32px", height: "3px", borderRadius: "0 0 3px 3px",
+                    backgroundColor: "var(--wellness-teal)",
+                    opacity: active ? 1 : 0, transition: "opacity 0.2s",
+                  }} />
+                  <div style={{
+                    width: "32px", height: "32px", borderRadius: "10px",
+                    backgroundColor: active ? "var(--wellness-teal)22" : "transparent",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "all 0.2s",
+                  }}>
+                    <Icon size={18} color={active ? "var(--wellness-teal)" : "var(--muted-foreground)"} />
+                  </div>
+                  <span style={{
+                    fontSize: "10px",
+                    color: active ? "var(--wellness-teal)" : "var(--muted-foreground)",
+                    fontWeight: active ? "600" : "400",
+                  }}>{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+
+    </AnimatePresence>
   );
 }
