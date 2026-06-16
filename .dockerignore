@@ -1,0 +1,11 @@
+node_modules/
+.pnpm-store/
+.git/
+.github/
+.node_env/
+dist/
+build/
+.env
+.env.local
+.env.*.local
+*.log
