@@ -18,10 +18,12 @@ type ExtraPanel = "breathing" | "habits" | "journal" | null;
 // Minimum time to show the loading screen (prevents flash if auth is instant)
 const MIN_LOADING_MS = 600;
 
+// Combined app state — updated atomically to prevent intermediate render glitches
+type AppState = { isPreparing: boolean; profile: UserProfile | null; userId: string | null };
+
 export default function App() {
-  const [userId, setUserId] = useState<string | null>(null);
-  const [isPreparing, setIsPreparing] = useState(true);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [appState, setAppState] = useState<AppState>({ isPreparing: true, profile: null, userId: null });
+  const { isPreparing, profile, userId } = appState;
   const [activeTab, setActiveTab] = useState<Tab>("home");
   const [darkMode, setDarkMode] = useState(() => {
     const stored = localStorage.getItem("serenity_dark") === "true";
@@ -34,48 +36,46 @@ export default function App() {
   useEffect(() => {
     async function runHandshake() {
       const startTime = Date.now();
+      let resolvedUid: string | null = null;
+      let resolvedProfile: UserProfile | null = null;
       try {
-        const validatedUid = await Auth.performHandshake();
-        setUserId(validatedUid);
+        resolvedUid = await Auth.performHandshake();
 
         // Fetch user profile from database
-        const dbProfile = await initializeUser(validatedUid);
-        if (dbProfile) {
-          setProfile(dbProfile);
+        resolvedProfile = await initializeUser(resolvedUid);
 
+        if (resolvedProfile) {
           // Pre-warm the SQL query cache concurrently during the loading state for instant tab loading
           await Promise.all([
             sql`
               SELECT id, to_char(date, 'YYYY-MM-DD') as date, title, category, duration_minutes as "durationMinutes"
               FROM sessions
-              WHERE user_id = ${Number(validatedUid)}
+              WHERE user_id = ${Number(resolvedUid)}
               ORDER BY date DESC, created_at DESC
             `,
             sql`
               SELECT id, name, emoji, streak, done
               FROM habits
-              WHERE user_id = ${Number(validatedUid)}
+              WHERE user_id = ${Number(resolvedUid)}
               ORDER BY created_at ASC
             `,
             sql`
               SELECT entry_type, content, items
               FROM journal_entries
-              WHERE user_id = ${Number(validatedUid)} AND entry_date = CURRENT_DATE
+              WHERE user_id = ${Number(resolvedUid)} AND entry_date = CURRENT_DATE
               ORDER BY created_at DESC
             `,
             sql`
               SELECT master_notif as "masterNotif", settings
               FROM notification_settings
-              WHERE user_id = ${Number(validatedUid)}
+              WHERE user_id = ${Number(resolvedUid)}
             `,
             sql`
               SELECT COALESCE(SUM(duration_minutes), 0) as total
               FROM sessions
-              WHERE user_id = ${Number(validatedUid)}
+              WHERE user_id = ${Number(resolvedUid)}
             `
           ]).catch(err => console.error('[App] Query cache pre-warming failed:', err));
-        } else {
-          setProfile(null);
         }
       } catch (err) {
         console.error('[App] Verification or initialization failed:', err);
@@ -86,7 +86,9 @@ export default function App() {
         if (remaining > 0) {
           await new Promise(r => setTimeout(r, remaining));
         }
-        setIsPreparing(false);
+        // Single atomic state update — React renders ONCE with isPreparing=false + correct profile
+        // This eliminates any intermediate flash to onboarding for already-onboarded users
+        setAppState({ isPreparing: false, profile: resolvedProfile, userId: resolvedUid });
       }
     }
     runHandshake();
@@ -105,15 +107,13 @@ export default function App() {
     if (userId) {
       await saveUserProfile(userId, p);
     }
-    setProfile(p);
+    setAppState(prev => ({ ...prev, profile: p }));
     setActiveTab("home");
   };
 
   const handleSignOut = () => {
     Auth.clear();
-    setProfile(null);
-    setUserId(null);
-    setIsPreparing(true);
+    setAppState({ isPreparing: true, profile: null, userId: null });
     // Use a short timeout so the loading screen fades in before the redirect
     setTimeout(() => {
       window.location.href = '/yoga/token';

@@ -1,14 +1,33 @@
 
-  <!DOCTYPE html>
+<!DOCTYPE html>
   <html lang="en">
     <head>
       
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Personal Wellness Coach App (Copy) (Copy) (Copy) (Copy)</title>
+      <title>Serenity – Personal Wellness Coach</title>
       <meta name="description" content="Experience personalized wellness coaching with tailored yoga and meditation sessions, daily mood check-ins, and curated content to enhance your physical and mental well-being." />
       <meta name="robots" content="noindex, nofollow" />
-      <style>html, body { height: 100%; margin: 0; } #root { height: 100%; }</style>
+
+      <!-- ── Instant theme flash prevention ──────────────────────────────────
+           This script runs SYNCHRONOUSLY before any paint, applying the correct
+           background color so there is ZERO white/wrong-color flash on load.
+           It reads the saved dark mode preference and sets it immediately. -->
+      <script>
+        (function() {
+          var isDark = localStorage.getItem('serenity_dark') === 'true';
+          if (isDark) document.documentElement.classList.add('dark');
+          // Set background immediately — light: #F7F6F2, dark: #0F1117
+          document.documentElement.style.backgroundColor = isDark ? '#0F1117' : '#F7F6F2';
+          document.documentElement.style.minHeight = '100%';
+        })();
+      </script>
+
+      <style>
+        html, body { height: 100%; margin: 0; background-color: #F7F6F2; }
+        html.dark, html.dark body { background-color: #0F1117; }
+        #root { height: 100%; }
+      </style>
       
     </head>
 
@@ -19,4 +38,3 @@
       
     </body>
   </html>
-  
